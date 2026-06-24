@@ -31,35 +31,46 @@
     })();
 
     var SECTION_CLASS = 'gallery-section';
-    var POLL_INTERVAL_MS = 1000;
-    var MAX_POLL_ATTEMPTS = 3;
     var _currentItemId = null;
-    var _pollCount = 0;
     var _pollTimer = null;
 
     /* ------------------------------------------------------------------------
-     * Public API — called from the plugin's registered JS asset
-     * ------------------------------------------------------------------------ */
-
-    /**
      * Entry point. Called whenever the page might have changed.
-     */
+     * ------------------------------------------------------------------------ */
     function init() {
         var itemId = getItemIdFromUrl();
-        if (!itemId || itemId === _currentItemId) {
+        if (!itemId) {
             return;
         }
 
+        // If the gallery already exists in the visible container and the item
+        // hasn't changed, there's nothing to do.  If the item changed, reload.
+        if (itemId === _currentItemId) {
+            var container = getVisibleContainer();
+            if (container && container.querySelector('.' + SECTION_CLASS)) {
+                return;
+            }
+            // Gallery missing from visible container — fall through to recreate
+        }
+
+        // Kill any previous polling interval
+        if (_pollTimer) {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+        }
+
         _currentItemId = itemId;
-        _pollCount = 0;
         removeExistingSection();
-        startPolling(itemId);
+
+        // Check immediately — anchors may already be in the DOM.
+        // Then poll every 1s as a safety net (SPA may replace the DOM later).
+        poll(itemId);
+        _pollTimer = setInterval(function () { poll(itemId); }, 1000);
     }
 
     /* ------------------------------------------------------------------------
      * URL / page detection
      * ------------------------------------------------------------------------ */
-
     function getItemIdFromUrl() {
         // Try query string first (non-SPA URLs)
         var params = new URLSearchParams(window.location.search);
@@ -76,62 +87,68 @@
         return null;
     }
 
-    function isMovieDetailPage() {
-        var path = window.location.pathname;
-        var hash = window.location.hash;
-        // Jellyfin 10.10+ uses /details or /web/details
-        return path.indexOf('/details') !== -1
-            || hash.indexOf('/details') !== -1;
-    }
-
     /* ------------------------------------------------------------------------
-     * Polling — wait for the detail page DOM to be ready
+     * Polling — checks for the gallery anchor every second.  Once found the
+     * gallery is rendered; if the SPA later tears down and re-creates the
+     * page DOM the poll will pick it up on the next tick.
      * ------------------------------------------------------------------------ */
-
-    function startPolling(itemId) {
-        if (_pollTimer) {
-            clearTimeout(_pollTimer);
-            _pollTimer = null;
+    function poll(itemId) {
+        // If the user navigated away, just return.
+        // init() handles cleanup of the interval.
+        if (getItemIdFromUrl() !== itemId || itemId !== _currentItemId) {
+            return;
         }
 
-        function poll() {
-            _pollCount++;
-
-            if (!isMovieDetailPage()) {
-                // User navigated away
-                _currentItemId = null;
-                return;
-            }
-
-            var anchor = findGalleryAnchor();
-            if (anchor) {
-                loadGallery(itemId);
-                return;
-            }
-
-            if (_pollCount < MAX_POLL_ATTEMPTS) {
-                _pollTimer = setTimeout(poll, POLL_INTERVAL_MS);
-            }
+        // Gallery already exists in the visible container — nothing to do.
+        var container = getVisibleContainer();
+        if (container && container.querySelector('.' + SECTION_CLASS)) {
+            return;
         }
 
-        _pollTimer = setTimeout(poll, 500);
+        var anchor = findGalleryAnchor();
+        if (anchor) {
+            loadGallery(itemId);
+        }
     }
 
     /* ------------------------------------------------------------------------
      * DOM anchor detection
      *
      * Returns the element after which the gallery section should be inserted.
-     * Prefers #scenesCollapsible, then #similarCollapsible.
-     * Returns null if neither is found — the caller will poll and retry.
+     * Always prefers #scenesCollapsible (even if hidden) — gallery goes right
+     * after Scenes, before "More Like This".
+     * Falls back to #similarCollapsible if #scenesCollapsible doesn't exist.
+     * Returns null if neither is found — the poll keeps trying every second.
      * ------------------------------------------------------------------------ */
 
+    /**
+     * Find the visible .detailPageContent container (non-zero width).
+     * Jellyfin's SPA leaves stale containers in the DOM from previous pages,
+     * each with their own copies of the anchor elements (#scenesCollapsible,
+     * #similarCollapsible).  We must operate on the visible one.
+     */
+    function getVisibleContainer() {
+        var containers = document.querySelectorAll('.detailPageContent');
+        for (var i = 0; i < containers.length; i++) {
+            if (containers[i].offsetWidth > 0) {
+                return containers[i];
+            }
+        }
+        // Fallback: return the first one if none have width yet (SPA still loading)
+        return containers[0] || null;
+    }
+
     function findGalleryAnchor() {
-        // Prefer #scenesCollapsible — gallery goes right after Scenes
-        var el = document.getElementById('scenesCollapsible');
+        var container = getVisibleContainer();
+        if (!container) return null;
+
+        // Always prefer #scenesCollapsible — gallery goes right after Scenes,
+        // before "More Like This" (#similarCollapsible).
+        var el = container.querySelector('#scenesCollapsible');
         if (el) return el;
 
         // Fallback: #similarCollapsible — gallery goes before More Like This
-        el = document.getElementById('similarCollapsible');
+        el = container.querySelector('#similarCollapsible');
         if (el) return el;
 
         return null;
@@ -140,7 +157,6 @@
     /* ------------------------------------------------------------------------
      * Data loading
      * ------------------------------------------------------------------------ */
-
     function loadGallery(itemId) {
         if (!window.ApiClient) {
             console.warn('Gallery Plugin: ApiClient not available.');
@@ -150,6 +166,9 @@
         var url = ApiClient.getUrl('Gallery/' + itemId);
 
         ApiClient.getJSON(url).then(function (images) {
+            // If the user navigated away during the request, discard
+            if (getItemIdFromUrl() !== itemId) return;
+
             if (images && images.length > 0) {
                 // Append auth token to image URLs so <img> tags can load them
                 var authToken = ApiClient.accessToken ? ApiClient.accessToken() : '';
@@ -176,7 +195,6 @@
     /* ------------------------------------------------------------------------
      * Rendering
      * ------------------------------------------------------------------------ */
-
     function renderGallery(images) {
         removeExistingSection();
 
@@ -270,7 +288,9 @@
     }
 
     function removeExistingSection() {
-        var existing = document.querySelector('.' + SECTION_CLASS);
+        var container = getVisibleContainer();
+        if (!container) return;
+        var existing = container.querySelector('.' + SECTION_CLASS);
         if (existing) {
             existing.parentNode.removeChild(existing);
         }
@@ -278,6 +298,13 @@
 
     /* ------------------------------------------------------------------------
      * Event binding
+     *
+     * We listen to multiple navigation events to support Jellyfin's SPA:
+     *   - 'viewshow' – Jellyfin's custom view-change event
+     *   - 'hashchange' – browser hash URL changes
+     *   - 'popstate' – browser back/forward
+     *   - history.pushState / history.replaceState – Jellyfin's react-router
+     *     uses these to navigate without triggering hashchange or popstate.
      * ------------------------------------------------------------------------ */
 
     // Listen for Jellyfin view navigation events
@@ -285,24 +312,42 @@
         init();
     });
 
-    // Listen for URL hash changes (fallback)
+    // Listen for URL hash changes (SPA navigation)
     window.addEventListener('hashchange', function () {
         _currentItemId = null;
         init();
     });
 
-    // Listen for popstate (browser back/forward)
+    // Listen for popstate (browser back/forward — SPA navigation)
     window.addEventListener('popstate', function () {
         _currentItemId = null;
         setTimeout(init, 100);
     });
 
+    // Intercept pushState – Jellyfin's react-router uses this to navigate
+    // without firing hashchange.  Without this, the gallery never re-initialises
+    // when the user clicks a "More Like This" link or similar SPA navigation.
+    var _origPushState = history.pushState;
+    history.pushState = function () {
+        _origPushState.apply(this, arguments);
+        _currentItemId = null;
+        init();
+    };
+
+    // Intercept replaceState – Jellyfin also uses this during navigation
+    var _origReplaceState = history.replaceState;
+    history.replaceState = function () {
+        _origReplaceState.apply(this, arguments);
+        _currentItemId = null;
+        init();
+    };
+
     // Initial check in case the page is already loaded
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        setTimeout(init, 500);
+        init();
     } else {
         document.addEventListener('DOMContentLoaded', function () {
-            setTimeout(init, 500);
+            init();
         });
     }
 })();

@@ -61,7 +61,29 @@ public class GalleryScanner
         {
             // Only enumerate the immediate directory contents — no recursion
             var files = Directory.EnumerateFiles(galleryPath, "*", SearchOption.TopDirectoryOnly)
-                .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
+                .Where(f =>
+                {
+                    // Only keep files with a supported image extension
+                    if (!SupportedExtensions.Contains(Path.GetExtension(f)))
+                        return false;
+
+                    var name = Path.GetFileName(f);
+
+                    // Skip Apple Double resource-fork files (macOS creates these
+                    // on ExFAT / external volumes — they are NOT real images).
+                    if (name.StartsWith("._"))
+                        return false;
+
+                    // Skip macOS .DS_Store
+                    if (name == ".DS_Store")
+                        return false;
+
+                    // Skip Windows thumbnail cache
+                    if (name == "Thumbs.db")
+                        return false;
+
+                    return true;
+                })
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

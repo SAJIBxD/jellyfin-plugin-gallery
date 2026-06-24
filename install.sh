@@ -50,15 +50,14 @@ OUTPUT_DLL="$PROJECT_DIR/bin/Debug/net9.0/Jellyfin.Plugin.Gallery.dll"
 # ─── 1. Find Jellyfin data directory ──────────────────────────────────────────
 info "Looking for running Jellyfin process…"
 
-JELLYFIN_PID=$(pgrep -x jellyfin 2>/dev/null || true)
+JELLYFIN_PID=$(pgrep -x jellyfin 2>/dev/null || pgrep -x "Jellyfin Server" 2>/dev/null || true)
 
 if [[ -n "$JELLYFIN_PID" ]]; then
     # Extract the --datadir argument from the process command line
     JELLYFIN_CMDLINE=$(ps -p "$JELLYFIN_PID" -o args= 2>/dev/null || true)
-    # Match --datadir <path>
-    if [[ "$JELLYFIN_CMDLINE" =~ --datadir[[:space:]]+([^[:space:]]+) ]]; then
-        JELLYFIN_DATA_DIR="${match[1]}"
-    fi
+
+    # Extract --datadir <path> using sed (avoids zsh's `match` unbound-variable pitfall)
+    JELLYFIN_DATA_DIR=$(echo "$JELLYFIN_CMDLINE" | sed -n 's/.*--datadir[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p')
 fi
 
 # Fallback: check common macOS Jellyfin data locations
@@ -170,14 +169,20 @@ if [[ "${SKIP_WEB:-false}" != true && -d "$WEB_ROOT" ]]; then
     fi
     
     # Inject <script> tag into index.html if not already present
+    # Uses a cache-busting version parameter based on the current timestamp
+    # so the browser always picks up the latest gallery.js after a deploy.
     INDEX_HTML="$WEB_ROOT/index.html"
     if [[ -f "$INDEX_HTML" ]]; then
+        # Compute a cache-busting version string (Unix timestamp)
+        GALLERY_VER=$(date +%s)
         if grep -q 'src="gallery.js"' "$INDEX_HTML" 2>/dev/null; then
-            ok "gallery.js already referenced in index.html."
+            # Update existing reference with new cache-buster
+            sed -i '' "s|src=\"gallery.js\"[^>]*|src=\"gallery.js?v=$GALLERY_VER\"|" "$INDEX_HTML"
+            ok "gallery.js cache-buster updated to v=$GALLERY_VER."
         else
             info "Adding gallery.js reference to index.html…"
             # Insert before </body>
-            sed -i '' 's|</body>|<script src="gallery.js"></script>\n</body>|' "$INDEX_HTML"
+            sed -i '' "s|</body>|<script src=\"gallery.js?v=$GALLERY_VER\"></script>\n</body>|" "$INDEX_HTML"
             ok "index.html updated."
         fi
     else
@@ -192,32 +197,35 @@ if [[ "$DO_RESTART" == true ]]; then
     info "Restarting Jellyfin…"
 
     # Kill existing Jellyfin process
-    if [[ -n "$JELLYFIN_PID" ]]; then
-        info "Stopping Jellyfin (PID $JELLYFIN_PID)…"
-        kill "$JELLYFIN_PID" 2>/dev/null || true
+    # Kill ALL Jellyfin processes (both "jellyfin" and "Jellyfin Server")
+    # to avoid port conflicts when relaunching.
+    if pgrep -q -i jellyfin 2>/dev/null; then
+        info "Stopping all Jellyfin processes…"
+        pkill -f -i jellyfin 2>/dev/null || true
 
-        # Wait for the process to exit gracefully
+        # Wait for them to exit gracefully
         for i in {1..15}; do
-            if ! kill -0 "$JELLYFIN_PID" 2>/dev/null; then
+            if ! pgrep -q -i jellyfin 2>/dev/null; then
                 break
             fi
             sleep 1
         done
 
-        # Force kill if still running
-        if kill -0 "$JELLYFIN_PID" 2>/dev/null; then
-            warn "Process still alive after 15s, sending SIGKILL…"
-            kill -9 "$JELLYFIN_PID" 2>/dev/null || true
+        # Force kill any survivors
+        if pgrep -q -i jellyfin 2>/dev/null; then
+            warn "Processes still alive after 15s, sending SIGKILL…"
+            pkill -9 -f -i jellyfin 2>/dev/null || true
             sleep 2
         fi
         ok "Jellyfin stopped."
     fi
 
-    # Relaunch via the .app bundle
+    # Relaunch via the .app bundle (using open ensures macOS TCC permissions
+    # for external/removable volumes are handled correctly).
     JELLYFIN_APP="/Applications/Jellyfin.app"
     if [[ -d "$JELLYFIN_APP" ]]; then
         info "Starting Jellyfin from $JELLYFIN_APP…"
-        open "$JELLYFIN_APP"
+        open "$JELLYFIN_APP" --args --datadir "$JELLYFIN_DATA_DIR"
         ok "Jellyfin relaunched. Waiting for startup…"
         sleep 3
     else
