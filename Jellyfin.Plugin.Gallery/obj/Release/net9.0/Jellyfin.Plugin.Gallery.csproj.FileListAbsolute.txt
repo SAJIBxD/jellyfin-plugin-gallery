@@ -1,0 +1,12 @@
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/bin/Release/net9.0/Jellyfin.Plugin.Gallery.deps.json
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/bin/Release/net9.0/Jellyfin.Plugin.Gallery.dll
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/bin/Release/net9.0/Jellyfin.Plugin.Gallery.pdb
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/Jellyfin.Plugin.Gallery.csproj.AssemblyReference.cache
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/Jellyfin.Plugin.Gallery.GeneratedMSBuildEditorConfig.editorconfig
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/Jellyfin.Plugin.Gallery.AssemblyInfoInputs.cache
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/Jellyfin.Plugin.Gallery.AssemblyInfo.cs
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/Jellyfin.Plugin.Gallery.csproj.CoreCompileInputs.cache
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/Jellyfin.Plugin.Gallery.dll
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/refint/Jellyfin.Plugin.Gallery.dll
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/Jellyfin.Plugin.Gallery.pdb
+/Users/sajib/Projects/jellyfin-plugin-dev/Jellyfin.Plugin.Gallery/obj/Release/net9.0/ref/Jellyfin.Plugin.Gallery.dll

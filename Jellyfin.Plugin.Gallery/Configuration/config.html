@@ -1,0 +1,339 @@
+<div id="gallerySettingsPage" data-role="page" class="page librarySettingsPage noHeader" data-controller="gallery_settings">
+    <div data-role="content">
+        <div class="sectionTitleContainer">
+            <h2 class="sectionTitle">Gallery Plugin Configuration</h2>
+        </div>
+
+        <form id="galleryConfigForm" class="configForm">
+            <div class="inputContainer">
+                <input
+                    id="txtGalleryFolderName"
+                    type="text"
+                    is="emby-input"
+                    required="required"
+                    label="Gallery Folder Name" />
+                <label class="inputLabel" for="txtGalleryFolderName">Gallery Folder Name</label>
+                <div class="fieldDescription">
+                    The name of the folder inside each movie directory that contains gallery images.
+                    For example, if set to <code>gallery</code>, the plugin will look for images in
+                    <code>&lt;MovieFolder&gt;/gallery/</code>.
+                </div>
+            </div>
+
+            <br />
+
+            <div>
+                <button is="emby-button" type="submit" class="raised button-submit block btnSave">
+                    <span>Save</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script type="text/javascript">
+(function () {
+    'use strict';
+
+    /* ---- Config page handlers ---- */
+    var pageId = 'gallerySettingsPage';
+    var page = document.getElementById(pageId);
+
+    if (!page) {
+        console.error('Gallery Plugin: Settings page element not found.');
+        return;
+    }
+
+    page.addEventListener('pagebeforeshow', function () {
+        loadConfig(page);
+    });
+
+    page.querySelector('form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        saveConfig(page);
+    });
+
+    function loadConfig(page) {
+        var pluginId = getParameterByName('id');
+        if (!pluginId) {
+            console.warn('Gallery Plugin: No plugin ID found in URL.');
+            return;
+        }
+        ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+            page.querySelector('#txtGalleryFolderName').value = config.GalleryFolderName || 'gallery';
+        }).catch(function (err) {
+            console.error('Gallery Plugin: Failed to load configuration.', err);
+        });
+    }
+
+    function saveConfig(page) {
+        var pluginId = getParameterByName('id');
+        if (!pluginId) {
+            console.warn('Gallery Plugin: No plugin ID found in URL.');
+            return;
+        }
+        ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+            config.GalleryFolderName = page.querySelector('#txtGalleryFolderName').value;
+            ApiClient.updatePluginConfiguration(pluginId, config).then(function () {
+                require(['emby-notifications'], function (notifications) {
+                    notifications.show('Gallery settings saved successfully.');
+                });
+            }).catch(function (err) {
+                console.error('Gallery Plugin: Failed to save configuration.', err);
+            });
+        });
+    }
+
+    /* ---- Gallery injection (runs on every page navigation) ---- */
+    var SECTION_CLASS = 'gallery-section';
+    var LIGHTBOX_CLASS = 'gallery-lightbox-overlay';
+    var POLL_INTERVAL_MS = 800;
+    var MAX_POLL_ATTEMPTS = 20;
+    var _currentItemId = null;
+    var _pollCount = 0;
+    var _pollTimer = null;
+
+    document.addEventListener('viewshow', function () {
+        initGallery();
+    });
+
+    function initGallery() {
+        var itemId = getItemIdFromUrl();
+        if (!itemId || itemId === _currentItemId) {
+            return;
+        }
+        _currentItemId = itemId;
+        _pollCount = 0;
+        removeExistingSection();
+        startPolling(itemId);
+    }
+
+    function getItemIdFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        return params.get('id');
+    }
+
+    function isMovieDetailPage() {
+        var hash = window.location.hash;
+        return hash.indexOf('/details') !== -1;
+    }
+
+    function startPolling(itemId) {
+        if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
+        function poll() {
+            _pollCount++;
+            if (!isMovieDetailPage()) { _currentItemId = null; return; }
+            var anchor = findGalleryAnchor();
+            if (anchor) { loadGallery(itemId); return; }
+            if (_pollCount < MAX_POLL_ATTEMPTS) {
+                _pollTimer = setTimeout(poll, POLL_INTERVAL_MS);
+            }
+        }
+        _pollTimer = setTimeout(poll, 500);
+    }
+
+    function findGalleryAnchor() {
+        // Strategy: find the "Cast & Crew" heading and insert after its section
+        var allHeadings = document.querySelectorAll('h2');
+        for (var i = 0; i < allHeadings.length; i++) {
+            var text = allHeadings[i].textContent || '';
+            if (/cast/i.test(text)) {
+                // Walk up to find the section container
+                var parent = allHeadings[i].parentNode;
+                // Ensure it's a visible section with content
+                if (parent && parent.nodeType === 1) {
+                    return parent;
+                }
+            }
+        }
+        // Fallback: look for sectionTitle containers with Cast/Crew text
+        var containers = document.querySelectorAll('.sectionTitle, .sectionTitleContainer');
+        for (var j = containers.length - 1; j >= 0; j--) {
+            var txt = containers[j].textContent || '';
+            if (/cast/i.test(txt)) {
+                return containers[j].parentNode || containers[j];
+            }
+        }
+        // Last resort: find the last visible verticalSection
+        var sections = document.querySelectorAll('.verticalSection');
+        if (sections.length > 0) {
+            for (var k = sections.length - 1; k >= 0; k--) {
+                if (sections[k].offsetParent !== null) {
+                    return sections[k];
+                }
+            }
+        }
+        return null;
+    }
+
+    function loadGallery(itemId) {
+        if (!window.ApiClient) { return; }
+        var url = ApiClient.getUrl('Gallery/' + itemId);
+        ApiClient.getJSON(url).then(function (images) {
+            if (images && images.length > 0) {
+                renderGallery(images);
+            } else {
+                removeExistingSection();
+            }
+        }).catch(function () {
+            removeExistingSection();
+        });
+    }
+
+    function renderGallery(images) {
+        removeExistingSection();
+        var anchor = findGalleryAnchor();
+        if (!anchor) { return; }
+
+        var section = document.createElement('div');
+        section.className = SECTION_CLASS + ' detailSection';
+        section.setAttribute('data-gallery', 'true');
+
+        var heading = document.createElement('h2');
+        heading.className = 'sectionTitle';
+        heading.textContent = 'Gallery';
+        section.appendChild(heading);
+
+        var grid = document.createElement('div');
+        grid.className = 'gallery-grid';
+        section.appendChild(grid);
+
+        for (var i = 0; i < images.length; i++) {
+            var item = document.createElement('div');
+            item.className = 'gallery-item';
+            item.dataset.index = i;
+
+            var img = document.createElement('img');
+            img.className = 'gallery-thumb';
+            img.src = images[i].url;
+            img.alt = images[i].name;
+            img.loading = 'lazy';
+
+            item.appendChild(img);
+            grid.appendChild(item);
+
+            (function (index) {
+                item.addEventListener('click', function () {
+                    openLightbox(images, index);
+                });
+            })(i);
+        }
+
+        anchor.parentNode.insertBefore(section, anchor.nextSibling);
+    }
+
+    function removeExistingSection() {
+        var existing = document.querySelector('.' + SECTION_CLASS);
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+        }
+    }
+
+    /* ---- Lightbox ---- */
+    var _lightboxImages = null;
+    var _lightboxIndex = -1;
+    var _lightboxOverlay = null;
+    var _lightboxKeyHandler = null;
+
+    function openLightbox(images, index) {
+        _lightboxImages = images;
+        _lightboxIndex = index;
+        closeLightbox();
+
+        var overlay = document.createElement('div');
+        overlay.className = LIGHTBOX_CLASS;
+        _lightboxOverlay = overlay;
+
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'gallery-lightbox-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.addEventListener('click', closeLightbox);
+        overlay.appendChild(closeBtn);
+
+        var prevBtn = document.createElement('button');
+        prevBtn.className = 'gallery-lightbox-nav gallery-lightbox-nav-prev';
+        prevBtn.innerHTML = '&#8249;';
+        prevBtn.setAttribute('aria-label', 'Previous');
+        prevBtn.addEventListener('click', function (e) { e.stopPropagation(); navigateLightbox(-1); });
+        overlay.appendChild(prevBtn);
+
+        var nextBtn = document.createElement('button');
+        nextBtn.className = 'gallery-lightbox-nav gallery-lightbox-nav-next';
+        nextBtn.innerHTML = '&#8250;';
+        nextBtn.setAttribute('aria-label', 'Next');
+        nextBtn.addEventListener('click', function (e) { e.stopPropagation(); navigateLightbox(1); });
+        overlay.appendChild(nextBtn);
+
+        var content = document.createElement('div');
+        content.className = 'gallery-lightbox-content';
+        overlay.appendChild(content);
+
+        var counter = document.createElement('div');
+        counter.className = 'gallery-lightbox-counter';
+        content.appendChild(counter);
+
+        var img = document.createElement('img');
+        img.className = 'gallery-lightbox-image';
+        content.appendChild(img);
+
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) { closeLightbox(); }
+        });
+
+        document.body.appendChild(overlay);
+        updateLightboxImage();
+
+        _lightboxKeyHandler = function (e) {
+            if (e.key === 'Escape') { closeLightbox(); }
+            else if (e.key === 'ArrowLeft') { navigateLightbox(-1); }
+            else if (e.key === 'ArrowRight') { navigateLightbox(1); }
+        };
+        document.addEventListener('keydown', _lightboxKeyHandler);
+    }
+
+    function closeLightbox() {
+        if (_lightboxOverlay) {
+            if (_lightboxOverlay.parentNode) { _lightboxOverlay.parentNode.removeChild(_lightboxOverlay); }
+            _lightboxOverlay = null;
+        }
+        if (_lightboxKeyHandler) {
+            document.removeEventListener('keydown', _lightboxKeyHandler);
+            _lightboxKeyHandler = null;
+        }
+        _lightboxImages = null;
+        _lightboxIndex = -1;
+    }
+
+    function navigateLightbox(direction) {
+        if (!_lightboxImages || _lightboxImages.length === 0) { return; }
+        var newIndex = _lightboxIndex + direction;
+        if (newIndex < 0) { newIndex = _lightboxImages.length - 1; }
+        else if (newIndex >= _lightboxImages.length) { newIndex = 0; }
+        _lightboxIndex = newIndex;
+        updateLightboxImage();
+    }
+
+    function updateLightboxImage() {
+        if (!_lightboxOverlay || !_lightboxImages || _lightboxIndex < 0) { return; }
+        var img = _lightboxOverlay.querySelector('.gallery-lightbox-image');
+        var counter = _lightboxOverlay.querySelector('.gallery-lightbox-counter');
+        var prevBtn = _lightboxOverlay.querySelector('.gallery-lightbox-nav-prev');
+        var nextBtn = _lightboxOverlay.querySelector('.gallery-lightbox-nav-next');
+        if (img) {
+            img.src = _lightboxImages[_lightboxIndex].url;
+            img.alt = _lightboxImages[_lightboxIndex].name;
+        }
+        if (counter) {
+            counter.textContent = (_lightboxIndex + 1) + ' / ' + _lightboxImages.length;
+        }
+        if (_lightboxImages.length <= 1) {
+            if (prevBtn) prevBtn.style.display = 'none';
+            if (nextBtn) nextBtn.style.display = 'none';
+        } else {
+            if (prevBtn) prevBtn.style.display = '';
+            if (nextBtn) nextBtn.style.display = '';
+        }
+    }
+})();
+</script>
