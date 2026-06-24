@@ -21,28 +21,16 @@
         style.textContent = [
             '.gallery-section { margin-top: 1.5em; padding: 0 0.5em; }',
             '.gallery-section .sectionTitle { margin-bottom: 0.75em; }',
-            '.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.5em; }',
-            '.gallery-item { position: relative; aspect-ratio: 1 / 1; overflow: hidden; border-radius: 4px; cursor: pointer; background: rgba(0,0,0,0.2); transition: transform 0.2s ease, box-shadow 0.2s ease; }',
-            '.gallery-item:hover { transform: scale(1.03); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }',
-            '.gallery-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }',
-            '.gallery-lightbox-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.92); z-index: 9999; display: flex; align-items: center; justify-content: center; opacity: 0; animation: galleryFadeIn 0.25s ease forwards; }',
-            '@keyframes galleryFadeIn { from { opacity: 0; } to { opacity: 1; } }',
-            '.gallery-lightbox-content { position: relative; max-width: 94vw; max-height: 94vh; display: flex; align-items: center; justify-content: center; }',
-            '.gallery-lightbox-image { max-width: 94vw; max-height: 94vh; object-fit: contain; border-radius: 4px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); }',
-            '.gallery-lightbox-close { position: absolute; top: -2.5em; right: -0.5em; background: none; border: none; color: rgba(255,255,255,0.7); font-size: 2em; cursor: pointer; padding: 0.25em 0.5em; line-height: 1; transition: color 0.2s ease; }',
-            '.gallery-lightbox-close:hover { color: #fff; }',
-            '.gallery-lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); border: none; color: rgba(255,255,255,0.7); font-size: 2.5em; cursor: pointer; padding: 0.3em 0.4em; border-radius: 4px; line-height: 1; transition: background 0.2s ease, color 0.2s ease; z-index: 10; }',
-            '.gallery-lightbox-nav:hover { background: rgba(0,0,0,0.8); color: #fff; }',
-            '.gallery-lightbox-nav-prev { left: -1.2em; }',
-            '.gallery-lightbox-nav-next { right: -1.2em; }',
-            '.gallery-lightbox-counter { position: absolute; bottom: -2em; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.6); font-size: 0.9em; white-space: nowrap; }',
-            '@media (max-width: 600px) { .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 0.35em; } .gallery-lightbox-nav { font-size: 1.8em; } .gallery-lightbox-nav-prev { left: 0.3em; } .gallery-lightbox-nav-next { right: 0.3em; } .gallery-lightbox-close { top: 0.3em; right: 0.3em; } }'
+            '.gallery-grid { display: flex; flex-direction: row; gap: 0.5em; align-items: flex-start; }',
+            '.gallery-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5em; }',
+            '.gallery-item { overflow: hidden; border-radius: 4px; background: rgba(0,0,0,0.2); }',
+            '.gallery-thumb { width: 100%; height: auto; display: block; }',
+            '@media (max-width: 768px) { .gallery-grid { flex-direction: column; } }'
         ].join(' ');
         document.head.appendChild(style);
     })();
 
     var SECTION_CLASS = 'gallery-section';
-    var LIGHTBOX_CLASS = 'gallery-lightbox-overlay';
     var POLL_INTERVAL_MS = 1000;
     var MAX_POLL_ATTEMPTS = 3;
     var _currentItemId = null;
@@ -198,7 +186,7 @@
         }
 
         var section = document.createElement('div');
-        section.className = SECTION_CLASS + ' detailSection';
+        section.className = SECTION_CLASS + ' detailSection verticalSection-extrabottompadding';
         section.setAttribute('data-gallery', 'true');
 
         var heading = document.createElement('h2');
@@ -210,184 +198,81 @@
         grid.className = 'gallery-grid';
         section.appendChild(grid);
 
+        // Create two columns for Pinterest-style masonry
+        var col0 = document.createElement('div');
+        col0.className = 'gallery-col';
+        var col1 = document.createElement('div');
+        col1.className = 'gallery-col';
+        grid.appendChild(col0);
+        grid.appendChild(col1);
+
+        // Insert into DOM so we can measure column width
+        anchor.parentNode.insertBefore(section, anchor.nextSibling);
+        var colWidth = col0.offsetWidth;
+
+        if (images.length === 0) return;
+
+        // Preload all images in parallel to get natural dimensions,
+        // then place each in the shortest column (true bin-packing masonry)
+        var preloaded = [];
+        var pending = images.length;
+
         for (var i = 0; i < images.length; i++) {
-            var item = document.createElement('div');
-            item.className = 'gallery-item';
-            item.dataset.index = i;
-
-            var img = document.createElement('img');
-            img.className = 'gallery-thumb';
-            img.src = images[i].ThumbnailUrl || images[i].Url || images[i].url;
-            img.alt = images[i].Name || images[i].name;
-            img.loading = 'lazy';
-
-            item.appendChild(img);
-            grid.appendChild(item);
-
-            // Attach click handler
-            (function (index) {
-                item.addEventListener('click', function () {
-                    openLightbox(images, index);
-                });
+            (function (idx) {
+                var loader = new Image();
+                loader.onload = function () {
+                    preloaded[idx] = {
+                        w: loader.naturalWidth,
+                        h: loader.naturalHeight
+                    };
+                    checkDone();
+                };
+                loader.onerror = function () {
+                    // If an image fails, assume 1:1 so it still gets placed
+                    preloaded[idx] = { w: 1, h: 1 };
+                    checkDone();
+                };
+                loader.src = images[idx].Url || images[idx].ThumbnailUrl || images[idx].url;
             })(i);
         }
 
-        anchor.parentNode.insertBefore(section, anchor.nextSibling);
+        function checkDone() {
+            pending--;
+            if (pending > 0) return;
+
+            // All images measured — do true masonry bin-packing.
+            // Process in original order so the gallery respects the
+            // natural image sequence (0, 1, 2, …).
+            var colHeights = [0, 0];
+            var cols = [col0, col1];
+
+            for (var idx = 0; idx < images.length; idx++) {
+                var item = document.createElement('div');
+                item.className = 'gallery-item';
+                item.dataset.index = idx;
+
+                var img = document.createElement('img');
+                img.className = 'gallery-thumb';
+                img.src = images[idx].Url || images[idx].ThumbnailUrl || images[idx].url;
+                img.alt = images[idx].Name || images[idx].name;
+                img.loading = 'eager';
+                item.appendChild(img);
+
+                var p = preloaded[idx];
+                var renderedH = (p.h / p.w) * colWidth;
+
+                // Place in the currently shorter column
+                var shortCol = colHeights[0] <= colHeights[1] ? 0 : 1;
+                colHeights[shortCol] += renderedH;
+                cols[shortCol].appendChild(item);
+            }
+        }
     }
 
     function removeExistingSection() {
         var existing = document.querySelector('.' + SECTION_CLASS);
         if (existing) {
             existing.parentNode.removeChild(existing);
-        }
-    }
-
-    /* ------------------------------------------------------------------------
-     * Lightbox
-     * ------------------------------------------------------------------------ */
-
-    var _lightboxImages = null;
-    var _lightboxIndex = -1;
-    var _lightboxOverlay = null;
-    var _lightboxKeyHandler = null;
-
-    function openLightbox(images, index) {
-        _lightboxImages = images;
-        _lightboxIndex = index;
-
-        closeLightbox(); // Clean up any existing lightbox
-
-        var overlay = document.createElement('div');
-        overlay.className = LIGHTBOX_CLASS;
-        _lightboxOverlay = overlay;
-
-        // Close button
-        var closeBtn = document.createElement('button');
-        closeBtn.className = 'gallery-lightbox-close';
-        closeBtn.innerHTML = '&times;';
-        closeBtn.setAttribute('aria-label', 'Close');
-        closeBtn.addEventListener('click', closeLightbox);
-        overlay.appendChild(closeBtn);
-
-        // Previous button
-        var prevBtn = document.createElement('button');
-        prevBtn.className = 'gallery-lightbox-nav gallery-lightbox-nav-prev';
-        prevBtn.innerHTML = '&#8249;';
-        prevBtn.setAttribute('aria-label', 'Previous');
-        prevBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            navigateLightbox(-1);
-        });
-        overlay.appendChild(prevBtn);
-
-        // Next button
-        var nextBtn = document.createElement('button');
-        nextBtn.className = 'gallery-lightbox-nav gallery-lightbox-nav-next';
-        nextBtn.innerHTML = '&#8250;';
-        nextBtn.setAttribute('aria-label', 'Next');
-        nextBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            navigateLightbox(1);
-        });
-        overlay.appendChild(nextBtn);
-
-        // Content container
-        var content = document.createElement('div');
-        content.className = 'gallery-lightbox-content';
-        overlay.appendChild(content);
-
-        // Counter
-        var counter = document.createElement('div');
-        counter.className = 'gallery-lightbox-counter';
-        content.appendChild(counter);
-
-        // Image
-        var img = document.createElement('img');
-        img.className = 'gallery-lightbox-image';
-        content.appendChild(img);
-
-        // Click on overlay background to close
-        overlay.addEventListener('click', function (e) {
-            if (e.target === overlay) {
-                closeLightbox();
-            }
-        });
-
-        document.body.appendChild(overlay);
-        updateLightboxImage();
-
-        // Keyboard navigation
-        _lightboxKeyHandler = function (e) {
-            if (e.key === 'Escape') {
-                closeLightbox();
-            } else if (e.key === 'ArrowLeft') {
-                navigateLightbox(-1);
-            } else if (e.key === 'ArrowRight') {
-                navigateLightbox(1);
-            }
-        };
-        document.addEventListener('keydown', _lightboxKeyHandler);
-    }
-
-    function closeLightbox() {
-        if (_lightboxOverlay) {
-            if (_lightboxOverlay.parentNode) {
-                _lightboxOverlay.parentNode.removeChild(_lightboxOverlay);
-            }
-            _lightboxOverlay = null;
-        }
-
-        if (_lightboxKeyHandler) {
-            document.removeEventListener('keydown', _lightboxKeyHandler);
-            _lightboxKeyHandler = null;
-        }
-
-        _lightboxImages = null;
-        _lightboxIndex = -1;
-    }
-
-    function navigateLightbox(direction) {
-        if (!_lightboxImages || _lightboxImages.length === 0) {
-            return;
-        }
-
-        var newIndex = _lightboxIndex + direction;
-        if (newIndex < 0) {
-            newIndex = _lightboxImages.length - 1;
-        } else if (newIndex >= _lightboxImages.length) {
-            newIndex = 0;
-        }
-
-        _lightboxIndex = newIndex;
-        updateLightboxImage();
-    }
-
-    function updateLightboxImage() {
-        if (!_lightboxOverlay || !_lightboxImages || _lightboxIndex < 0) {
-            return;
-        }
-
-        var img = _lightboxOverlay.querySelector('.gallery-lightbox-image');
-        var counter = _lightboxOverlay.querySelector('.gallery-lightbox-counter');
-        var prevBtn = _lightboxOverlay.querySelector('.gallery-lightbox-nav-prev');
-        var nextBtn = _lightboxOverlay.querySelector('.gallery-lightbox-nav-next');
-
-        if (img) {
-            img.src = _lightboxImages[_lightboxIndex].Url || _lightboxImages[_lightboxIndex].url;
-            img.alt = _lightboxImages[_lightboxIndex].Name || _lightboxImages[_lightboxIndex].name;
-        }
-
-        if (counter) {
-            counter.textContent = (_lightboxIndex + 1) + ' / ' + _lightboxImages.length;
-        }
-
-        // Hide navigation buttons when there's only one image
-        if (_lightboxImages.length <= 1) {
-            if (prevBtn) prevBtn.style.display = 'none';
-            if (nextBtn) nextBtn.style.display = 'none';
-        } else {
-            if (prevBtn) prevBtn.style.display = '';
-            if (nextBtn) nextBtn.style.display = '';
         }
     }
 
