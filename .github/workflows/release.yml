@@ -1,0 +1,37 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build
+        run: dotnet build Jellyfin.Plugin.Gallery -c Release --nologo
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="pkg/Jellyfin.Plugin.Gallery"
+          mkdir -p "$STAGE"
+          cp Jellyfin.Plugin.Gallery/bin/Release/net10.0/Jellyfin.Plugin.Gallery.dll "$STAGE/"
+          (cd pkg && zip -r "../Jellyfin.Plugin.Gallery-${VERSION}.zip" Jellyfin.Plugin.Gallery)
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Jellyfin.Plugin.Gallery-*.zip
+          generate_release_notes: true

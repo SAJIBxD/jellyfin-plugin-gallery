@@ -45,7 +45,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR/Jellyfin.Plugin.Gallery"
 PROJECT_FILE="$PROJECT_DIR/Jellyfin.Plugin.Gallery.csproj"
-OUTPUT_DLL="$PROJECT_DIR/bin/Debug/net9.0/Jellyfin.Plugin.Gallery.dll"
+OUTPUT_DLL="$PROJECT_DIR/bin/Debug/net10.0/Jellyfin.Plugin.Gallery.dll"
 
 # ─── 1. Find Jellyfin data directory ──────────────────────────────────────────
 info "Looking for running Jellyfin process…"
@@ -136,6 +136,9 @@ cp "$OUTPUT_DLL" "$TARGET_DLL"
 ok "Plugin installed."
 
 # ─── 3b. Deploy web files (gallery.js + index.html) ────────────────────────
+# NOTE: this step is now only for instant effect without a restart. The
+# plugin's WebAssetDeployer hosted service re-deploys these files on every
+# server start, so Jellyfin updates no longer break the gallery UI.
 info "Deploying web files…"
 
 # Detect Jellyfin web root
@@ -148,41 +151,95 @@ else
     if [[ ! -d "$WEB_ROOT" ]]; then
         warn "Could not detect jellyfin-web directory. Skipping web deployment."
         warn "You will need to manually copy Web/gallery.js to the jellyfin-web folder"
-        warn "and add <script src=\"gallery.js\"></script> to index.html."
+        warn "and add a <script> tag to index.html."
         SKIP_WEB=true
     fi
 fi
 
 if [[ "${SKIP_WEB:-false}" != true && -d "$WEB_ROOT" ]]; then
     ok "Web root: $WEB_ROOT"
-    
-    # Copy gallery.js
+
+    # Helper: copy with sudo fallback (the Jellyfin 12 installer leaves
+    # jellyfin-web/plugins/ owned by root).
+    web_cp() {
+        if cp "$1" "$2" 2>/dev/null; then return 0; fi
+        warn "Need elevated permissions to write $2 — trying sudo…"
+        sudo cp "$1" "$2"
+    }
+    web_mkdir() {
+        if mkdir -p "$1" 2>/dev/null; then return 0; fi
+        warn "Need elevated permissions to create $1 — trying sudo…"
+        sudo mkdir -p "$1"
+    }
+    web_sed() {
+        # $1 = sed expression, $2 = file. Falls back to sudo for root-owned files.
+        if sed -i '' "$1" "$2" 2>/dev/null; then return 0; fi
+        warn "Need elevated permissions to patch $2 — trying sudo…"
+        sudo sed -i '' "$1" "$2"
+    }
+
+    # Copy gallery.js into a dedicated plugin folder (survives alongside
+    # other plugin assets; only index.html needs re-patching after updates)
+    WEB_PLUGIN_DIR="$WEB_ROOT/plugins/Gallery"
+    web_mkdir "$WEB_PLUGIN_DIR"
+
     SOURCE_JS="$PROJECT_DIR/Web/gallery.js"
-    TARGET_JS="$WEB_ROOT/gallery.js"
-    
+    TARGET_JS="$WEB_PLUGIN_DIR/gallery.js"
+
     if [[ -f "$SOURCE_JS" ]]; then
-        info "Copying gallery.js to web root…"
-        cp "$SOURCE_JS" "$TARGET_JS"
+        info "Copying gallery.js to $WEB_PLUGIN_DIR…"
+        web_cp "$SOURCE_JS" "$TARGET_JS"
         ok "gallery.js deployed."
     else
         warn "Source gallery.js not found at $SOURCE_JS. Skipping."
     fi
-    
-    # Inject <script> tag into index.html if not already present
+
+    # Remove any stale web-root copy from older installs (keeps a single source)
+    if [[ -f "$WEB_ROOT/gallery.js" ]]; then
+        info "Removing stale web-root gallery.js from previous installs…"
+        rm -f "$WEB_ROOT/gallery.js"
+    fi
+
+    # Inject <script> bootstrap into index.html if not already present
     # Uses a cache-busting version parameter based on the current timestamp
     # so the browser always picks up the latest gallery.js after a deploy.
     INDEX_HTML="$WEB_ROOT/index.html"
+    SCRIPT_SRC="plugins/Gallery/gallery.js"
+    MASONRY_SRC="https://unpkg.com/masonry-layout@4/dist/masonry.pkgd.min.js"
     if [[ -f "$INDEX_HTML" ]]; then
+        # Ensure the Masonry.js CDN tag loads BEFORE gallery.js so
+        # window.Masonry is ready synchronously (gallery.js also lazy-loads
+        # it as fallback). Strip any existing tag first to enforce order
+        # and avoid duplicates from previous installs.
+        # NOTE: single-quoted sed fragments keep zsh from parsing
+        # $VAR[...] as an array subscript.
+        if grep -q "masonry.pkgd.min.js" "$INDEX_HTML" 2>/dev/null; then
+            web_sed '/masonry\.pkgd\.min\.js/d' "$INDEX_HTML"
+        fi
+        info "Ensuring Masonry.js loads before gallery.js…"
+        if grep -q "$SCRIPT_SRC" "$INDEX_HTML" 2>/dev/null; then
+            web_sed 's|<script src="'${SCRIPT_SRC}'|<script src="'${MASONRY_SRC}'"></script>\n<script src="'${SCRIPT_SRC}'|' "$INDEX_HTML"
+        else
+            web_sed 's|</body>|<script src="'${MASONRY_SRC}'"></script>\n</body>|' "$INDEX_HTML"
+        fi
+        ok "Masonry.js load order ensured."
         # Compute a cache-busting version string (Unix timestamp)
         GALLERY_VER=$(date +%s)
-        if grep -q 'src="gallery.js"' "$INDEX_HTML" 2>/dev/null; then
+        if grep -q "$SCRIPT_SRC" "$INDEX_HTML" 2>/dev/null; then
             # Update existing reference with new cache-buster
-            sed -i '' "s|src=\"gallery.js\"[^>]*|src=\"gallery.js?v=$GALLERY_VER\"|" "$INDEX_HTML"
+            # (pattern matches both bare src and src with existing ?v= param)
+            # NOTE: single-quoted sed fragments keep zsh from parsing
+            # $VAR[...] as an array subscript.
+            web_sed 's|src="'${SCRIPT_SRC}'[^"]*"|src="'${SCRIPT_SRC}'?v='${GALLERY_VER}'"|' "$INDEX_HTML"
             ok "gallery.js cache-buster updated to v=$GALLERY_VER."
+        elif grep -q 'src="gallery.js"' "$INDEX_HTML" 2>/dev/null; then
+            # Migrate legacy web-root reference to the plugin folder
+            web_sed 's|src="gallery.js[^"]*"|src="'${SCRIPT_SRC}'?v='${GALLERY_VER}'"|' "$INDEX_HTML"
+            ok "Migrated legacy gallery.js reference to $SCRIPT_SRC (v=$GALLERY_VER)."
         else
             info "Adding gallery.js reference to index.html…"
             # Insert before </body>
-            sed -i '' "s|</body>|<script src=\"gallery.js?v=$GALLERY_VER\"></script>\n</body>|" "$INDEX_HTML"
+            web_sed 's|</body>|<script src="'${SCRIPT_SRC}'?v='${GALLERY_VER}'"></script>\n</body>|' "$INDEX_HTML"
             ok "index.html updated."
         fi
     else

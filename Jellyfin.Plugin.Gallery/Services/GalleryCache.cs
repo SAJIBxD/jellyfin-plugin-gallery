@@ -77,15 +77,6 @@ public class GalleryCache
         }
     }
 
-    /// <summary>
-    /// Invalidates all cached entries.
-    /// </summary>
-    public void InvalidateAll()
-    {
-        _cache.Clear();
-        _logger.LogDebug("All gallery cache entries invalidated");
-    }
-
     private sealed class CachedEntry
     {
         public List<GalleryImage> Images { get; init; } = new();

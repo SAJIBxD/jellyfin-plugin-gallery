@@ -2,6 +2,7 @@ using Jellyfin.Plugin.Gallery.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Jellyfin.Plugin.Gallery;
 
@@ -15,5 +16,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<GalleryScanner>();
         serviceCollection.AddSingleton<GalleryCache>();
+        serviceCollection.AddHostedService<WebAssetDeployer>();
     }
 }

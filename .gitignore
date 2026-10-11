@@ -1,0 +1,32 @@
+# .NET build artifacts
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+
+# Build backups / temp
+*.bak.*
+*.tmp
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editor
+.idea/
+*.swp
+*~
