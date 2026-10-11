@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "d2c8a4b6-7e3f-4a9b-8c1d-5f6e7a8b9c0d",
+    "name": "Gallery",
+    "overview": "Gallery images on movie pages",
+    "description": "Displays a Gallery section on movie details pages, sourced from a gallery folder inside each movie directory. Survives Jellyfin updates via self-healing web assets.",
+    "owner": "SAJIBxD",
+    "category": "General",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Initial release: gallery section on movie pages (Masonry layout), configurable folder name, 30-minute cache, self-healing web assets for Jellyfin 12.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/SAJIBxD/jellyfin-plugin-gallery",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2026-10-11T00:00:00Z",
+        "url": "https://github.com/SAJIBxD/jellyfin-plugin-gallery/releases/download/v1.0.0/Jellyfin.Plugin.Gallery-1.0.0.zip"
+      }
+    ]
+  }
+]

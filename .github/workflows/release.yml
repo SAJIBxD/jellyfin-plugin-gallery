@@ -19,19 +19,86 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Tag vX.Y.Z -> assembly version X.Y.Z.0 so the installed plugin
+      # version always matches the manifest entry (Jellyfin uses this
+      # comparison to detect updates).
+      - name: Stamp version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          IFS='.' read -ra PARTS <<< "$TAG"
+          while [ ${#PARTS[@]} -lt 4 ]; do PARTS+=(0); done
+          VERSION="$(IFS='.'; echo "${PARTS[*]:0:4}")"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          python3 - "$VERSION" <<'EOF'
+          import sys, xml.etree.ElementTree as ET
+          version = sys.argv[1]
+          path = "Jellyfin.Plugin.Gallery/Jellyfin.Plugin.Gallery.csproj"
+          tree = ET.parse(path)
+          root = tree.getroot()
+          for tag in ("AssemblyVersion", "FileVersion"):
+              el = root.find(f".//{tag}")
+              if el is not None:
+                  el.text = version
+          tree.write(path, xml_declaration=True)
+          print("Stamped", version)
+          EOF
+
       - name: Build
         run: dotnet build Jellyfin.Plugin.Gallery -c Release --nologo
 
       - name: Package
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           STAGE="pkg/Jellyfin.Plugin.Gallery"
           mkdir -p "$STAGE"
           cp Jellyfin.Plugin.Gallery/bin/Release/net10.0/Jellyfin.Plugin.Gallery.dll "$STAGE/"
-          (cd pkg && zip -r "../Jellyfin.Plugin.Gallery-${VERSION}.zip" Jellyfin.Plugin.Gallery)
+          (cd pkg && zip -r "../Jellyfin.Plugin.Gallery-${GITHUB_REF_NAME}.zip" Jellyfin.Plugin.Gallery)
+          echo "ZIP=Jellyfin.Plugin.Gallery-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Jellyfin.Plugin.Gallery-*.zip
+          files: ${{ env.ZIP }}
           generate_release_notes: true
+
+      # Fill in the real MD5 checksum, download URL and timestamp so the
+      # manifest entry is installable from the Jellyfin catalog.
+      - name: Update manifest
+        run: |
+          python3 - "$VERSION" "$ZIP" <<'EOF'
+          import hashlib, json, os, sys
+          from datetime import datetime, timezone
+
+          version, zip_name = sys.argv[1], sys.argv[2]
+          tag = os.environ["GITHUB_REF_NAME"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          with open(zip_name, "rb") as f:
+              checksum = hashlib.md5(f.read()).hexdigest()
+
+          with open("manifest.json") as f:
+              manifest = json.load(f)
+
+          entry = {
+              "version": version,
+              "changelog": f"Release {tag}. See GitHub release notes for details.",
+              "targetAbi": "12.0.0.0",
+              "sourceUrl": f"https://github.com/{repo}",
+              "checksum": checksum,
+              "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "url": f"https://github.com/{repo}/releases/download/{tag}/{zip_name}",
+          }
+
+          plugin = manifest[0]
+          plugin["versions"] = [v for v in plugin["versions"] if v["version"] != version]
+          plugin["versions"].insert(0, entry)
+
+          with open("manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+
+          print("Manifest updated:", version, checksum)
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json Jellyfin.Plugin.Gallery/Jellyfin.Plugin.Gallery.csproj
+          git diff --cached --quiet || { git commit -m "Release ${GITHUB_REF_NAME}: update manifest checksum and version"; git push origin HEAD:main; }

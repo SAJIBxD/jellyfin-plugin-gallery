@@ -28,7 +28,16 @@ Movies/
 
 ## Install
 
-### Option A — release ZIP (recommended)
+### Option A — plugin catalog (recommended)
+
+1. In Jellyfin, go to Dashboard → **Plugins** → **Repositories** → **+**, and add:
+   - Name: `Gallery`
+   - URL: `https://raw.githubusercontent.com/SAJIBxD/jellyfin-plugin-gallery/main/manifest.json`
+2. Go to **Catalog**, find **Gallery**, and install it.
+3. Restart Jellyfin. The web assets deploy automatically on startup — no extra steps.
+4. Hard-refresh the web client once (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+
+### Option B — release ZIP
 
 1. Download the latest `Jellyfin.Plugin.Gallery-v*.zip` from the [Releases](../../releases) page.
 2. Extract it to a folder named `Jellyfin.Plugin.Gallery` inside your Jellyfin `plugins` directory:
@@ -39,7 +48,7 @@ Movies/
 3. Restart Jellyfin. The web assets deploy automatically on startup — no extra steps.
 4. Hard-refresh the web client once (`Ctrl+Shift+R` / `Cmd+Shift+R`).
 
-### Option B — build from source
+### Option C — build from source
 
 ```bash
 dotnet build Jellyfin.Plugin.Gallery -c Release
