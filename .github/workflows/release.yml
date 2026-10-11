@@ -81,11 +81,13 @@ jobs:
           with open("manifest.json") as f:
               manifest = json.load(f)
 
+          # NOTE: sourceUrl (not url) is what Jellyfin 12 downloads and it
+          # must end in .zip, so both point at the release archive.
           entry = {
               "version": version,
               "changelog": f"Release {tag}. See GitHub release notes for details.",
               "targetAbi": "12.0.0.0",
-              "sourceUrl": f"https://github.com/{repo}",
+              "sourceUrl": f"https://github.com/{repo}/releases/download/{tag}/{zip_name}",
               "checksum": checksum,
               "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "url": f"https://github.com/{repo}/releases/download/{tag}/{zip_name}",
