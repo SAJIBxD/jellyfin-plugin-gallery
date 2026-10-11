@@ -8,13 +8,13 @@
     "category": "General",
     "versions": [
       {
-        "version": "1.0.0.0",
-        "changelog": "Release v1.0.0. See GitHub release notes for details.",
+        "version": "1.0.1.0",
+        "changelog": "Fix catalog install: sourceUrl now points at the zip archive (Jellyfin 12 downloads sourceUrl, not url) and the DLL is packaged at the zip root.",
         "targetAbi": "12.0.0.0",
-        "sourceUrl": "https://github.com/SAJIBxD/jellyfin-plugin-gallery",
-        "checksum": "c08325298f4b5ff6190a504084a7a0f1",
-        "timestamp": "2026-10-11T10:21:57Z",
-        "url": "https://github.com/SAJIBxD/jellyfin-plugin-gallery/releases/download/v1.0.0/Jellyfin.Plugin.Gallery-v1.0.0.zip"
+        "sourceUrl": "https://github.com/SAJIBxD/jellyfin-plugin-gallery/releases/download/v1.0.1/Jellyfin.Plugin.Gallery-v1.0.1.zip",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2026-10-11T00:00:00Z",
+        "url": "https://github.com/SAJIBxD/jellyfin-plugin-gallery/releases/download/v1.0.1/Jellyfin.Plugin.Gallery-v1.0.1.zip"
       }
     ]
   }

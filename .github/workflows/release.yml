@@ -46,12 +46,15 @@ jobs:
       - name: Build
         run: dotnet build Jellyfin.Plugin.Gallery -c Release --nologo
 
+      # Package the DLL at the zip ROOT (no parent folder): Jellyfin
+      # extracts the archive directly into plugins/<Name>_<Version>/,
+      # so a nested folder would bury the assembly.
       - name: Package
         run: |
           STAGE="pkg/Jellyfin.Plugin.Gallery"
           mkdir -p "$STAGE"
           cp Jellyfin.Plugin.Gallery/bin/Release/net10.0/Jellyfin.Plugin.Gallery.dll "$STAGE/"
-          (cd pkg && zip -r "../Jellyfin.Plugin.Gallery-${GITHUB_REF_NAME}.zip" Jellyfin.Plugin.Gallery)
+          (cd "$STAGE" && zip "../../Jellyfin.Plugin.Gallery-${GITHUB_REF_NAME}.zip" Jellyfin.Plugin.Gallery.dll)
           echo "ZIP=Jellyfin.Plugin.Gallery-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
 
       - name: Release
