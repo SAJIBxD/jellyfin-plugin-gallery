@@ -1,102 +1,89 @@
 # Jellyfin Gallery Plugin
 
-Displays a **Gallery** section on movie details pages, sourced from a `gallery/` folder inside each movie directory. Pinterest-style Masonry layout, lazy loading, zero manual upkeep.
+Adds a Gallery section to movie pages in Jellyfin. Put some images in a folder called `gallery` next to your movie, and they show up on that movie's page.
 
 ![Jellyfin 12](https://img.shields.io/badge/Jellyfin-12.x-00A4DC) ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)
 
-## How it works
+## Setup
+
+Each movie needs its own folder (the normal Jellyfin layout). Add a `gallery` folder inside it:
 
 ```
 Movies/
 └── Dune (2021)/
     ├── Dune (2021).mp4
-    └── gallery/          ← any .jpg / .jpeg / .png / .webp
+    └── gallery/
         ├── still01.jpg
         └── bts.png
 ```
 
-- The plugin scans `<MovieFolder>/<GalleryFolderName>/` (top level only, no recursion).
-- A **Gallery** section is injected on the movie details page, right after *Scenes* / before *More Like This*.
-- macOS clutter (`._*` resource forks, `.DS_Store`) and `Thumbs.db` are ignored.
-- Results are cached in memory for 30 minutes to avoid disk scans on every page load.
-- The grid loads server-generated thumbnails (cached under Jellyfin's cache dir in `gallery-thumbs/`), not full-resolution originals.
-- **Survives Jellyfin updates**: Jellyfin wipes `jellyfin-web/` on every update. A startup service (`WebAssetDeployer`) re-deploys the web assets on each server start, so the gallery never silently disappears after an upgrade.
+Supported formats are JPG, PNG and WebP. Only images directly inside `gallery/` are used; subfolders are ignored.
 
-## Requirements
-
-- Jellyfin server **12.x** (uses the .NET 10 runtime bundled with the server)
-- Movies must be in their **own folders** (standard Jellyfin movie layout)
+The Gallery section shows up below Scenes and above More Like This. Movies without a `gallery` folder look the same as before.
 
 ## Install
 
-### Option A — plugin catalog (recommended)
+You need Jellyfin 12.
 
-1. In Jellyfin, go to Dashboard → **Plugins** → **Repositories** → **+**, and add:
-   - Name: `Gallery`
-   - URL: `https://raw.githubusercontent.com/SAJIBxD/jellyfin-plugin-gallery/main/manifest.json`
-2. Go to **Catalog**, find **Gallery**, and install it.
-3. Restart Jellyfin. The web assets deploy automatically on startup — no extra steps.
-4. Hard-refresh the web client once (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+**From the plugin catalog (easiest):**
 
-### Option B — release ZIP
+1. In Jellyfin, go to Dashboard → Plugins → Repositories and add this URL:
+   `https://raw.githubusercontent.com/SAJIBxD/jellyfin-plugin-gallery/main/manifest.json`
+2. Find **Gallery** in the Catalog tab and install it.
+3. Restart Jellyfin.
+4. Reload the Jellyfin page in your browser with `Ctrl+Shift+R` (`Cmd+Shift+R` on Mac).
 
-1. Download the latest `Jellyfin.Plugin.Gallery-v*.zip` from the [Releases](../../releases) page.
-2. Extract it to a folder named `Jellyfin.Plugin.Gallery` inside your Jellyfin `plugins` directory:
-   - Linux: `/var/lib/jellyfin/plugins/Jellyfin.Plugin.Gallery/`
-   - macOS: `~/.local/share/jellyfin/plugins/Jellyfin.Plugin.Gallery/`
-   - Windows: `%ProgramData%\Jellyfin\Server\plugins\Jellyfin.Plugin.Gallery\`
-   - Docker: `<config>/plugins/Jellyfin.Plugin.Gallery/`
-3. Restart Jellyfin. The web assets deploy automatically on startup — no extra steps.
-4. Hard-refresh the web client once (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+**Manually:**
 
-### Option C — build from source
+1. Download the zip from the [Releases](../../releases) page.
+2. Unzip it into a folder called `Jellyfin.Plugin.Gallery` inside Jellyfin's `plugins` folder. That's usually:
+   - Linux: `/var/lib/jellyfin/plugins/`
+   - macOS: `~/.local/share/jellyfin/plugins/`
+   - Windows: `%ProgramData%\Jellyfin\Server\plugins\`
+   - Docker: `<your config folder>/plugins/`
+3. Restart Jellyfin and reload the page like in step 4 above.
 
-```bash
-dotnet build Jellyfin.Plugin.Gallery -c Release
-# copy bin/Release/net10.0/Jellyfin.Plugin.Gallery.dll
-#   to <plugins>/Jellyfin.Plugin.Gallery/ and restart Jellyfin
-```
+## Settings
 
-macOS users can use the bundled script (builds, installs, deploys web files, restarts):
+Under Dashboard → Plugins → Gallery you can change the folder name it looks for. The default is `gallery`.
 
-```bash
-./install.sh              # full install + restart
-./install.sh --no-restart # install only
-```
+## Good to know
 
-## Configuration
-
-Dashboard → **Plugins** → **Gallery**:
-
-| Setting | Default | Description |
-|---|---|---|
-| Gallery Folder Name | `gallery` | Folder inside each movie directory that holds the images |
-
-## API
-
-| Endpoint | Auth | Description |
-|---|---|---|
-| `GET /Gallery/{itemId}` | required | JSON list of gallery images for a movie |
-| `GET /Gallery/{itemId}/{imageName}` | via `ApiKey` query param | Serves the image file; `?width=`/`?height=` return a downscaled, disk-cached thumbnail |
+- To show the gallery, the plugin adds two `<script>` lines to Jellyfin's web `index.html` every time the server starts. Jellyfin updates replace that file, so this is how the gallery keeps working after an update.
+- The page shows smaller versions of your images so it loads quickly. These are saved in Jellyfin's cache folder under `gallery-thumbs/`. It's safe to delete that folder at any time.
+- New images can take up to 30 minutes to appear, because the plugin remembers each folder's contents for that long.
+- macOS leftovers like `._image.jpg` files are skipped automatically.
 
 ## Uninstall
 
-1. Stop Jellyfin, delete the `Jellyfin.Plugin.Gallery` folder from `plugins/`.
-2. Optional cleanup: remove the two injected lines (`masonry-layout`, `plugins/Gallery/gallery.js`) from `jellyfin-web/index.html`. If left, they 404 harmlessly and are overwritten on the next Jellyfin update.
+Stop Jellyfin and delete the plugin's folder from `plugins/`. You can also remove the two gallery lines from `jellyfin-web/index.html`, but if you leave them they don't break anything and go away on the next Jellyfin update.
 
-## Development
+## Building from source
 
 ```bash
-dotnet build Jellyfin.Plugin.Gallery -c Debug
+dotnet build Jellyfin.Plugin.Gallery -c Release
 ```
 
-- `Api/` — REST controllers
-- `Services/GalleryScanner.cs` — filesystem scan
-- `Services/GalleryCache.cs` — 30-minute in-memory cache
-- `Services/WebAssetDeployer.cs` — startup self-heal for web assets
-- `Web/gallery.js` — frontend (embedded resource, injected CSS + Masonry with CSS-column fallback)
-- `Configuration/config.html` — plugin settings page (embedded resource)
+Copy `Jellyfin.Plugin.Gallery/bin/Release/net10.0/Jellyfin.Plugin.Gallery.dll` into the plugin folder and restart Jellyfin. On macOS, `./install.sh` does the build, copy and restart for you (add `--no-restart` to skip the restart).
+
+Where things live:
+
+| Path | What it does |
+|---|---|
+| `Api/GalleryController.cs` | The `/Gallery` endpoints |
+| `Services/GalleryScanner.cs` | Finds the images in a movie's folder |
+| `Services/GalleryCache.cs` | Remembers scan results for 30 minutes |
+| `Services/GalleryThumbnailService.cs` | Makes and caches the smaller images |
+| `Services/WebAssetDeployer.cs` | Adds the script to `index.html` on startup |
+| `Web/gallery.js` | The part that runs in the browser |
+
+### API
+
+Both endpoints need a Jellyfin login. For images, you can pass the key as `?ApiKey=...`.
+
+- `GET /Gallery/{itemId}` returns the list of images for a movie.
+- `GET /Gallery/{itemId}/{imageName}` returns one image. Add `?width=` or `?height=` to get a smaller copy.
 
 ## License
 
-See [LICENSE](LICENSE).
+[MIT](LICENSE)
