@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Jellyfin.Plugin.Gallery.Models;
 
 /// <summary>
@@ -22,6 +24,8 @@ public class GalleryImage
 
     /// <summary>
     /// Gets or sets the file system path to the image.
+    /// Server-side only — never serialized to clients.
     /// </summary>
+    [JsonIgnore]
     public string Path { get; set; } = string.Empty;
 }

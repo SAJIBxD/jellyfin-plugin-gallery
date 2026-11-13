@@ -205,7 +205,7 @@ if [[ "${SKIP_WEB:-false}" != true && -d "$WEB_ROOT" ]]; then
     # so the browser always picks up the latest gallery.js after a deploy.
     INDEX_HTML="$WEB_ROOT/index.html"
     SCRIPT_SRC="plugins/Gallery/gallery.js"
-    MASONRY_SRC="https://unpkg.com/masonry-layout@4/dist/masonry.pkgd.min.js"
+    MASONRY_SRC="https://unpkg.com/masonry-layout@4.2.2/dist/masonry.pkgd.min.js"
     if [[ -f "$INDEX_HTML" ]]; then
         # Ensure the Masonry.js CDN tag loads BEFORE gallery.js so
         # window.Masonry is ready synchronously (gallery.js also lazy-loads
