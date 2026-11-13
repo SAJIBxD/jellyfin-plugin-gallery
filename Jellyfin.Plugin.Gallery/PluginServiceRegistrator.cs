@@ -16,6 +16,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<GalleryScanner>();
         serviceCollection.AddSingleton<GalleryCache>();
+        serviceCollection.AddSingleton<GalleryThumbnailService>();
         serviceCollection.AddHostedService<WebAssetDeployer>();
     }
 }

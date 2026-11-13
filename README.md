@@ -19,6 +19,7 @@ Movies/
 - A **Gallery** section is injected on the movie details page, right after *Scenes* / before *More Like This*.
 - macOS clutter (`._*` resource forks, `.DS_Store`) and `Thumbs.db` are ignored.
 - Results are cached in memory for 30 minutes to avoid disk scans on every page load.
+- The grid loads server-generated thumbnails (cached under Jellyfin's cache dir in `gallery-thumbs/`), not full-resolution originals.
 - **Survives Jellyfin updates**: Jellyfin wipes `jellyfin-web/` on every update. A startup service (`WebAssetDeployer`) re-deploys the web assets on each server start, so the gallery never silently disappears after an upgrade.
 
 ## Requirements
@@ -76,7 +77,7 @@ Dashboard → **Plugins** → **Gallery**:
 | Endpoint | Auth | Description |
 |---|---|---|
 | `GET /Gallery/{itemId}` | required | JSON list of gallery images for a movie |
-| `GET /Gallery/{itemId}/{imageName}` | via `ApiKey` query param | Serves the image file |
+| `GET /Gallery/{itemId}/{imageName}` | via `ApiKey` query param | Serves the image file; `?width=`/`?height=` return a downscaled, disk-cached thumbnail |
 
 ## Uninstall
 

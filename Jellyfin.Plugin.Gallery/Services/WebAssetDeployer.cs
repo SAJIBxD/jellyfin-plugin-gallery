@@ -22,7 +22,7 @@ namespace Jellyfin.Plugin.Gallery.Services;
 public sealed class WebAssetDeployer : IHostedService
 {
     private const string ScriptSrc = "plugins/Gallery/gallery.js";
-    private const string MasonrySrc = "https://unpkg.com/masonry-layout@4/dist/masonry.pkgd.min.js";
+    private const string MasonrySrc = "https://unpkg.com/masonry-layout@4.2.2/dist/masonry.pkgd.min.js";
     private const string EmbeddedResourceName = "Jellyfin.Plugin.Gallery.Web.gallery.js";
 
     private readonly ILogger<WebAssetDeployer> _logger;

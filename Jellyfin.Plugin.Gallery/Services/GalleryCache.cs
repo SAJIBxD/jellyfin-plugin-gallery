@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Jellyfin.Plugin.Gallery.Models;
 using Microsoft.Extensions.Logging;
 
@@ -18,11 +17,6 @@ public class GalleryCache
     private readonly ILogger<GalleryCache> _logger;
 
     /// <summary>
-    /// Duration after which cached entries are considered stale.
-    /// </summary>
-    public TimeSpan CacheDuration { get; set; } = TimeSpan.FromMinutes(30);
-
-    /// <summary>
     /// Initializes a new instance of the <see cref="GalleryCache"/> class.
     /// </summary>
     /// <param name="scanner">The gallery scanner.</param>
@@ -34,36 +28,38 @@ public class GalleryCache
     }
 
     /// <summary>
+    /// Gets or sets the duration after which cached entries are considered stale.
+    /// </summary>
+    public TimeSpan CacheDuration { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Gets or sets the duration for empty results. Kept short so a gallery
+    /// on a drive that was asleep / unmounted shows up again quickly.
+    /// </summary>
+    public TimeSpan EmptyCacheDuration { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
     /// Gets gallery images for the specified item.
     /// Returns cached data if available and not expired; otherwise scans the filesystem.
     /// </summary>
     /// <param name="itemId">The Jellyfin item identifier.</param>
     /// <param name="moviePath">The filesystem path to the movie folder.</param>
     /// <param name="galleryFolderName">The name of the gallery folder.</param>
-    /// <returns>A list of gallery images.</returns>
-    public async Task<List<GalleryImage>> GetGalleryImagesAsync(
-        Guid itemId,
-        string moviePath,
-        string galleryFolderName)
-    {
-        if (_cache.TryGetValue(itemId, out var cached) && !cached.IsExpired(CacheDuration))
-        {
-            _logger.LogDebug("Cache hit for item {ItemId}", itemId);
-            return cached.Images;
-        }
+    /// <returns>The gallery images, sorted by name.</returns>
+    public IReadOnlyList<GalleryImage> GetGalleryImages(Guid itemId, string moviePath, string galleryFolderName)
+        => GetEntry(itemId, moviePath, galleryFolderName).Images;
 
-        _logger.LogDebug("Cache miss for item {ItemId}, scanning filesystem...", itemId);
-
-        var images = await _scanner.ScanGalleryAsync(moviePath, galleryFolderName);
-
-        _cache[itemId] = new CachedEntry
-        {
-            Images = images,
-            CachedAt = DateTime.UtcNow
-        };
-
-        return images;
-    }
+    /// <summary>
+    /// Looks up a single gallery image by file name. Only files the scanner
+    /// accepted (supported image types in the gallery folder) can be found.
+    /// </summary>
+    /// <param name="itemId">The Jellyfin item identifier.</param>
+    /// <param name="moviePath">The filesystem path to the movie folder.</param>
+    /// <param name="galleryFolderName">The name of the gallery folder.</param>
+    /// <param name="name">The image file name.</param>
+    /// <returns>The image, or <c>null</c> if it is not part of the gallery.</returns>
+    public GalleryImage? FindImage(Guid itemId, string moviePath, string galleryFolderName, string name)
+        => GetEntry(itemId, moviePath, galleryFolderName).ByName.GetValueOrDefault(name);
 
     /// <summary>
     /// Invalidates the cached entry for a specific item.
@@ -77,12 +73,37 @@ public class GalleryCache
         }
     }
 
-    private sealed class CachedEntry
+    private CachedEntry GetEntry(Guid itemId, string moviePath, string galleryFolderName)
     {
-        public List<GalleryImage> Images { get; init; } = new();
-        public DateTime CachedAt { get; init; }
+        // The folder name is part of the key so a config change takes effect
+        // immediately instead of after the TTL.
+        if (_cache.TryGetValue(itemId, out var cached)
+            && !cached.IsExpired(cached.Images.Count == 0 ? EmptyCacheDuration : CacheDuration)
+            && string.Equals(cached.FolderName, galleryFolderName, StringComparison.Ordinal))
+        {
+            return cached;
+        }
 
-        public bool IsExpired(TimeSpan duration)
-            => DateTime.UtcNow - CachedAt > duration;
+        _logger.LogDebug("Cache miss for item {ItemId}, scanning filesystem", itemId);
+
+        var images = _scanner.ScanGallery(moviePath, galleryFolderName);
+        var byName = new Dictionary<string, GalleryImage>(images.Count, StringComparer.Ordinal);
+        foreach (var image in images)
+        {
+            byName[image.Name] = image;
+        }
+
+        var entry = new CachedEntry(images, byName, galleryFolderName, DateTime.UtcNow);
+        _cache[itemId] = entry;
+        return entry;
+    }
+
+    private sealed record CachedEntry(
+        IReadOnlyList<GalleryImage> Images,
+        Dictionary<string, GalleryImage> ByName,
+        string FolderName,
+        DateTime CachedAt)
+    {
+        public bool IsExpired(TimeSpan duration) => DateTime.UtcNow - CachedAt > duration;
     }
 }

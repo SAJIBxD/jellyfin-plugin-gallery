@@ -52,12 +52,11 @@
     var _fetchItemId = null;
     var _resizeTimer = null;
     var _lastImages = null;
-    var _renderedColumnCount = 0;
     var _msnry = null;
     var _masonryFailed = false;
     var _masonryCallbacks = null;
     var _layoutQueued = false;
-    var MASONRY_CDN = 'https://unpkg.com/masonry-layout@4/dist/masonry.pkgd.min.js';
+    var MASONRY_CDN = 'https://unpkg.com/masonry-layout@4.2.2/dist/masonry.pkgd.min.js';
 
     /* ------------------------------------------------------------------------
      * Entry point. Called whenever the page might have changed.
@@ -73,20 +72,26 @@
     function init() {
         var itemId = getItemIdFromUrl();
         if (!itemId) {
+            // Left the details page: the next visit (even to the same
+            // movie) gets a fresh fetch and placement.
+            _currentItemId = null;
             stopWatching();
             return;
         }
 
         if (itemId === _currentItemId) {
-            // Same movie — just make sure a visible gallery is correctly
-            // positioned (late-loading sections may have pushed it down).
+            // Same movie (duplicate navigation events, replaceState during
+            // page build): keep the data, just make sure the gallery is in
+            // its slot and keep watching while the page finishes building.
             ensureGalleryPosition();
+            if (!_observer) {
+                watchForAnchor(itemId);
+            }
             return;
         }
 
         _currentItemId = itemId;
         _lastImages = null;
-        _renderedColumnCount = 0;
         _fetchItemId = null;
         stopWatching();
         destroyMasonry();
@@ -389,18 +394,12 @@
             if (getItemIdFromUrl() !== itemId) return;
 
             images = images || [];
-            if (images.length > 0) {
-                // Append auth token so <img> tags can load them
-                var authToken = ApiClient.accessToken ? ApiClient.accessToken() : '';
-                if (authToken) {
-                    for (var i = 0; i < images.length; i++) {
-                        if (images[i].Url) {
-                            images[i].Url = images[i].Url + (images[i].Url.indexOf('?') === -1 ? '?' : '&') + 'ApiKey=' + encodeURIComponent(authToken);
-                        }
-                        if (images[i].ThumbnailUrl) {
-                            images[i].ThumbnailUrl = images[i].ThumbnailUrl + (images[i].ThumbnailUrl.indexOf('?') === -1 ? '?' : '&') + 'ApiKey=' + encodeURIComponent(authToken);
-                        }
-                    }
+            // Append auth token so <img> tags can load them
+            var authToken = ApiClient.accessToken ? ApiClient.accessToken() : '';
+            if (authToken) {
+                for (var i = 0; i < images.length; i++) {
+                    images[i].Url = withApiKey(images[i].Url, authToken);
+                    images[i].ThumbnailUrl = withApiKey(images[i].ThumbnailUrl, authToken);
                 }
             }
             _lastImages = images;
@@ -415,6 +414,11 @@
             _lastImages = [];
             removeExistingSection();
         });
+    }
+
+    function withApiKey(url, token) {
+        if (!url) return url;
+        return url + (url.indexOf('?') === -1 ? '?' : '&') + 'ApiKey=' + encodeURIComponent(token);
     }
 
     /* ------------------------------------------------------------------------
@@ -527,7 +531,6 @@
         }
 
         var columnCount = getColumnCount();
-        _renderedColumnCount = columnCount;
 
         // Reuse the existing section if it's already in the right container
         // (avoids flicker); otherwise create it fresh.
@@ -583,8 +586,8 @@
 
                 var img = document.createElement('img');
                 img.className = 'gallery-thumb';
-                img.src = images[idx].Url || images[idx].ThumbnailUrl || images[idx].url;
-                img.alt = images[idx].Name || images[idx].name || ('Gallery image ' + (idx + 1));
+                img.src = images[idx].ThumbnailUrl || images[idx].Url;
+                img.alt = images[idx].Name || ('Gallery image ' + (idx + 1));
                 img.loading = 'lazy';
                 img.decoding = 'async';
                 img.onload = function () {
@@ -686,10 +689,7 @@
         if (_resizeTimer) {
             clearTimeout(_resizeTimer);
         }
-        _resizeTimer = setTimeout(function () {
-            _renderedColumnCount = getColumnCount();
-            queueMasonryLayout();
-        }, 150);
+        _resizeTimer = setTimeout(queueMasonryLayout, 150);
     });
 
     function removeExistingSection() {
@@ -719,14 +719,10 @@
     });
 
     // Listen for URL hash changes (SPA navigation)
-    window.addEventListener('hashchange', function () {
-        _currentItemId = null;
-        init();
-    });
+    window.addEventListener('hashchange', init);
 
     // Listen for popstate (browser back/forward — SPA navigation)
     window.addEventListener('popstate', function () {
-        _currentItemId = null;
         setTimeout(init, 100);
     });
 
@@ -735,17 +731,17 @@
     // when the user clicks a "More Like This" link or similar SPA navigation.
     var _origPushState = history.pushState;
     history.pushState = function () {
-        _origPushState.apply(this, arguments);
-        _currentItemId = null;
+        var result = _origPushState.apply(this, arguments);
         init();
+        return result;
     };
 
     // Intercept replaceState – Jellyfin also uses this during navigation
     var _origReplaceState = history.replaceState;
     history.replaceState = function () {
-        _origReplaceState.apply(this, arguments);
-        _currentItemId = null;
+        var result = _origReplaceState.apply(this, arguments);
         init();
+        return result;
     };
 
     // Initial check in case the page is already loaded
